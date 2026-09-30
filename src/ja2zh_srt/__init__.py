@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -70,7 +71,9 @@ def main() -> None:
 @click.option("--sakura-model", default=model_store.DEFAULT_SAKURA_MODEL, show_default=True)
 def check(whisper_model: str, sakura_model: str) -> None:
     """Check runtime tools and cached models."""
-    model_store.print_status(whisper_model=whisper_model, sakura_model=sakura_model)
+    if not model_store.print_status(whisper_model=whisper_model, sakura_model=sakura_model):
+        sys.stdout.flush()
+        raise click.ClickException("runtime is not ready; resolve the missing items above")
 
 
 @main.group()

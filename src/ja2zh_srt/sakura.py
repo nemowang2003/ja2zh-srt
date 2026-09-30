@@ -12,12 +12,12 @@ from types import TracebackType
 from typing import TextIO
 
 from .config import ensure_cache_dir
-from .models import sakura_model_path
+from .models import DEFAULT_SAKURA_MODEL, sakura_model_path
 from .translate import SakuraConfig, TranslationError
 
 
 def default_sakura_model_path() -> Path:
-    return sakura_model_path("q6-k")
+    return sakura_model_path(DEFAULT_SAKURA_MODEL)
 
 
 def iq4_xs_sakura_model_path() -> Path:
@@ -152,7 +152,11 @@ class ManagedSakuraServer:
             ) from exc
 
         base_url = f"http://{_connect_host(self.config.host)}:{self._port}/v1"
-        self._wait_until_ready(base_url, log_path)
+        try:
+            self._wait_until_ready(base_url, log_path)
+        except BaseException:
+            self.stop()
+            raise
         return SakuraConfig(
             base_url=base_url,
             api_key=self.config.api_key,

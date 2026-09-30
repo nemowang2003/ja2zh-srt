@@ -24,7 +24,7 @@ SRT 字幕，再通过 Sakura LLM 翻译成中文字幕。
 必须有：
 
 - Python 3.12
-- NVIDIA 驱动和 CUDA 12 runtime
+- NVIDIA 驱动和 CUDA 12.9 runtime
 - CUDA 可用的 faster-whisper / CTranslate2
 - CUDA 版 `llama-server`
 
@@ -34,13 +34,13 @@ faster-whisper/PyAV 依赖路径。
 
 ## 安装
 
-直接使用本机环境：
+已有 CUDA 运行库的非 NixOS 环境可使用：
 
 ```bash
 uv sync
 ```
 
-使用 Pixi 安装 CUDA 版 `llama.cpp`、`llama-server`、`ffmpeg`、Python 3.12 和 `uv`：
+使用 Pixi 安装 CUDA 版 `llama.cpp`、`llama-server`、cuBLAS、cuDNN、`ffmpeg`、Python 3.12 和 `uv`：
 
 ```bash
 pixi install
@@ -57,15 +57,19 @@ nix develop --accept-flake-config
 或直接运行打包后的命令：
 
 ```bash
-nix run . -- check
+nix run --accept-flake-config . -- check
 ```
 
 Nix flake 使用 `uv2nix` 从 `uv.lock` 构建 Python 环境，并把 `ffmpeg` 和 CUDA 版
-`llama-server` 放到运行时 PATH。当前 flake 只暴露 `x86_64-linux`。
+`llama-server` 放到运行时 PATH，同时设置 CUDA 库和 NixOS WSL 驱动路径。
+当前 flake 只暴露 `x86_64-linux`。
+flake 声明了 `https://cache.nixos-cuda.org`，但本机 Nix 若未信任 flake 配置会忽略它。
+使用 direnv 时应在 NixOS 配置中加入该 substituter 及 flake 中的公钥；
+缓存未命中时 Nix 仍可能从其他缓存获取或本地构建，进入 shell 的速度不能证明命中了这个 CUDA 缓存。
 
 ## 命令
 
-检查运行环境和模型：
+检查运行环境、CUDA 设备和模型。缺失必需项时命令返回非零状态：
 
 ```bash
 ja2zh-srt check
@@ -83,16 +87,16 @@ ja2zh-srt download whisper
 ja2zh-srt download whisper large-v3 -f
 ```
 
-下载默认 Sakura GGUF 模型。默认是 `q6-k`：
+下载默认 Sakura GGUF 模型。8 GB 显存环境默认使用 `iq4-xs`：
 
 ```bash
 ja2zh-srt download sakura
 ```
 
-下载较小的 Sakura IQ4_XS：
+显存充足时可下载较大的 Q6_K：
 
 ```bash
-ja2zh-srt download sakura iq4-xs
+ja2zh-srt download sakura q6-k
 ```
 
 处理单个 MP3：
@@ -145,11 +149,13 @@ Sakura，并校验返回的编号集合；输出字幕会保留原始 cue 数量
 ## 验证
 
 ```bash
-uv run ja2zh-srt --help
-uv run ja2zh-srt check
-uv run ruff check .
-python -m compileall -q src
+nix develop --command ja2zh-srt --help
+nix develop --command ja2zh-srt check
+nix develop --command python -m unittest discover -s tests
 ```
+
+在 Nix 开发环境中直接运行 `ja2zh-srt`。`uv run` 会优先使用工作目录中的
+`.venv`，未必是 flake 构建的 Python 环境。
 
 Nix 求值/干跑：
 

@@ -4,13 +4,15 @@ channels = ["conda-forge"]
 platforms = ["linux-64"]
 
 [system-requirements]
-cuda = "12"
+cuda = "12.9"
 
 [dependencies]
 python = "3.12.*"
 uv = "*"
 ffmpeg = "*"
-cuda-version = "12.*"
+cuda-version = "12.9.*"
+libcublas = "12.*"
+cudnn = "9.*"
 
 [dependencies."llama.cpp"]
 version = "*"
