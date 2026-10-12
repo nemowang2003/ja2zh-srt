@@ -35,9 +35,10 @@ wheels = [
 
 [[package]]
 name = "audio-transcribe"
-version = "0.2.0"
-source = { git = "https://github.com/nemowang2003/audio-transcribe?tag=v0.2.0#2648bca8612153d04f0fa53f0cf45df7c932a66f" }
+version = "0.2.1"
+source = { git = "https://github.com/nemowang2003/audio-transcribe?tag=v0.2.1#fc6fe2e8430e25443166f5f035b211855f75ed9e" }
 dependencies = [
+    { name = "av" },
     { name = "faster-whisper" },
     { name = "huggingface-hub" },
 ]
@@ -310,7 +311,7 @@ wheels = [
 
 [[package]]
 name = "ja2zh-srt"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "audio-transcribe" },
@@ -327,7 +328,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "audio-transcribe", git = "https://github.com/nemowang2003/audio-transcribe?tag=v0.2.0" },
+    { name = "audio-transcribe", git = "https://github.com/nemowang2003/audio-transcribe?tag=v0.2.1" },
     { name = "click", specifier = ">=8.1,<9" },
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "openai", specifier = ">=2,<3" },

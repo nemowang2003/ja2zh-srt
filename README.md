@@ -37,3 +37,18 @@ Python 依赖中直接声明 `audio-transcribe`，uv 使用其公开 Git tag。N
 `audio-transcribe` input 按相同 Python 版本构建 SDK；提供普通 CPU 包及 x86_64 Linux
 CUDA 包。系统 CUDA/WSL 运行库由 Nix 包装器提供，其他加速后端暂未实现。
 本项目不再需要 CUDA llama-server、Pixi 或外部 ffmpeg。
+
+## Locked Nix builds
+
+Nix builds resolve the project's `uv.lock` with uv2nix. Python dependencies,
+including optional extras, come from that lock; nixpkgs supplies the interpreter,
+system libraries and llama.cpp where applicable. Build backend versions are
+pinned by the `pyproject-build-systems` flake input because uv does not lock them.
+
+All three build inputs (`pyproject-nix`, `uv2nix`, `pyproject-build-systems`) may
+follow a consuming flake's shared inputs. The standalone flake pins them itself.
+`lib.mkPythonSet { pkgs; python; }` exposes the locked Python package scope for
+SDK consumers; `lib.mkPackage { pkgs; python; cudaSupport; }` ships the CLI with
+its isolated environment. The CLI's `python-env` passthru exposes that environment
+for installation and runtime checks. Development shells supply Python and uv;
+use `uv sync` / `uv run` for development, and `nix build` for deployment.
