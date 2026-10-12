@@ -1,165 +1,39 @@
 # ja2zh-srt
 
-`ja2zh-srt` 是一个 CUDA-only 命令行工具，用于把日语 MP3 音频生成日语
-SRT 字幕，再通过 Sakura LLM 翻译成中文字幕。
+日语音频 → 日语 SRT → 中文 SRT。转写通过 `audio-transcribe` Python SDK，翻译通过
+兼容 OpenAI 的 LLM API。工具负责字幕流程，不下载模型、不启动 LLM 服务。
 
-当前支持：
-
-- `*.mp3` 转写为 `*.ja.srt`
-- `*.ja.srt` 翻译为 `*.zh.srt`
-- 递归处理目录下的 MP3 和日语 SRT
-- 自动检查和下载 faster-whisper / Sakura 模型
-- Nix 和 Pixi 两种 CUDA 部署入口
-
-运行时模型缓存目录可通过 `JA2ZH_SRT_CACHE_DIR` 设置，默认是：
-
-```text
-~/.cache/ja2zh-srt
-```
-
-## CUDA 要求
-
-这个项目只面向 NVIDIA CUDA 环境，不维护 CPU、Metal、ROCm 或其他后端。
-
-必须有：
-
-- Python 3.12
-- NVIDIA 驱动和 CUDA 12.9 runtime
-- CUDA 可用的 faster-whisper / CTranslate2
-- CUDA 版 `llama-server`
-
-`ffmpeg` 会被 `check` 检查，也会被 Pixi/Nix 环境安装。当前 Python 代码不直接调用外部
-`ffmpeg`；它主要用于把其他音频格式预处理成 MP3，或排查音频文件问题。MP3 解码本身走
-faster-whisper/PyAV 依赖路径。
-
-## 安装
-
-已有 CUDA 运行库的非 NixOS 环境可使用：
-
-```bash
-uv sync
-```
-
-使用 Pixi 安装 CUDA 版 `llama.cpp`、`llama-server`、cuBLAS、cuDNN、`ffmpeg`、Python 3.12 和 `uv`：
-
-```bash
-pixi install
-pixi shell
-uv sync
-```
-
-使用 Nix：
-
-```bash
-nix develop --accept-flake-config
-```
-
-或直接运行打包后的命令：
-
-```bash
-nix run --accept-flake-config . -- check
-```
-
-Nix flake 使用 `uv2nix` 从 `uv.lock` 构建 Python 环境，并把 `ffmpeg` 和 CUDA 版
-`llama-server` 放到运行时 PATH，同时设置 CUDA 库和 NixOS WSL 驱动路径。
-当前 flake 只暴露 `x86_64-linux`。
-flake 声明了 `https://cache.nixos-cuda.org`，但本机 Nix 若未信任 flake 配置会忽略它。
-使用 direnv 时应在 NixOS 配置中加入该 substituter 及 flake 中的公钥；
-缓存未命中时 Nix 仍可能从其他缓存获取或本地构建，进入 shell 的速度不能证明命中了这个 CUDA 缓存。
-
-## 命令
-
-检查运行环境、CUDA 设备和模型。缺失必需项时命令返回非零状态：
-
-```bash
+```sh
+ja2zh-srt input.mp3
+ja2zh-srt input.ja.srt
+ja2zh-srt /path/to/directory
+ja2zh-srt input.mp3 --llm-url http://127.0.0.1:4000/v1 --llm-model sakura
 ja2zh-srt check
 ```
 
-下载默认 faster-whisper 模型：
+已有字幕默认跳过，`-f` 覆盖；目录先批量转写，再翻译。转写默认 CUDA／float16，
+缺少 CUDA 就报错，只有 `--device cpu` 明确允许 CPU／int8。Whisper 默认 `large-v3`，
+模型检查、下载、导入由 `audio-transcribe models` 管理，两者共享缓存及模型别名。
 
-```bash
-ja2zh-srt download whisper
+LLM 配置：`JA2ZH_SRT_LLM_URL`（默认 `http://127.0.0.1:4000/v1`）、
+`JA2ZH_SRT_API_KEY`、`JA2ZH_SRT_LLM_MODEL`（默认 `sakura`）。也可以传
+`--llm-url`、`--api-key`、`--llm-model`，密钥建议用环境变量。
+请求超时为一小时，允许本地服务排队和冷启动；不自动重试整个请求。
+若服务返回 `x-local-llm-warning`，CLI 显示可忽略的 RuntimeWarning，继续翻译。
+
+翻译按编号校验输出，保留 cue 编号、数量和时间轴。响应不符合编号约定时拆小批次
+重试，单条仍不合法就报错。日语转写使用 VAD、beam size 5，关闭 previous-text 条件。
+仅翻译 SRT 时不会加载 Whisper 或检查本地 CUDA。
+
+```sh
+uv sync
+uv run ja2zh-srt --help
+nix run .#cuda -- input.mp3
+nix flake check
+nix build .#cuda
 ```
 
-下载指定 faster-whisper 模型，强制重新下载：
-
-```bash
-ja2zh-srt download whisper large-v3 -f
-```
-
-下载默认 Sakura GGUF 模型。8 GB 显存环境默认使用 `iq4-xs`：
-
-```bash
-ja2zh-srt download sakura
-```
-
-显存充足时可下载较大的 Q6_K：
-
-```bash
-ja2zh-srt download sakura q6-k
-```
-
-处理单个 MP3：
-
-```bash
-ja2zh-srt input.mp3
-```
-
-规则：
-
-- 如果 `input.ja.srt` 不存在，先转写生成它。
-- 如果 `input.ja.srt` 存在但 `input.zh.srt` 不存在，翻译生成中文字幕。
-- 已存在的输出默认跳过；传 `-f` 会覆盖重新生成。
-
-处理单个日语 SRT：
-
-```bash
-ja2zh-srt input.ja.srt
-```
-
-如果 `input.zh.srt` 不存在，则翻译；传 `-f` 会覆盖。
-
-递归处理目录：
-
-```bash
-ja2zh-srt /path/to/directory
-```
-
-规则：
-
-- 递归查找目录下所有 `*.mp3`。
-- 对缺失对应 `*.ja.srt` 的 MP3 执行转写。
-- 然后递归查找目录下所有 `*.ja.srt`。
-- 对缺失对应 `*.zh.srt` 的日语 SRT 执行翻译。
-- 传 `-f` 会覆盖所有对应输出。
-
-## Pipeline
-
-```text
-mp3 file
-  -> faster-whisper on CUDA
-  -> Japanese SRT
-  -> managed Sakura/llama.cpp CUDA OpenAI-compatible API
-  -> Chinese SRT
-```
-
-翻译阶段只替换字幕文本，不让 LLM 生成或修改时间轴。Python 会把字幕文本整理成编号纯文本块发给
-Sakura，并校验返回的编号集合；输出字幕会保留原始 cue 数量、顺序和时间戳。
-
-## 验证
-
-```bash
-nix develop --command ja2zh-srt --help
-nix develop --command ja2zh-srt check
-nix develop --command python -m unittest discover -s tests
-```
-
-在 Nix 开发环境中直接运行 `ja2zh-srt`。`uv run` 会优先使用工作目录中的
-`.venv`，未必是 flake 构建的 Python 环境。
-
-Nix 求值/干跑：
-
-```bash
-nix flake show --allow-import-from-derivation
-nix build .#checks.x86_64-linux.help --dry-run --accept-flake-config --allow-import-from-derivation
-```
+Python 依赖中直接声明 `audio-transcribe`，uv 使用其公开 Git tag。Nix flake 通过
+`audio-transcribe` input 按相同 Python 版本构建 SDK；提供普通 CPU 包及 x86_64 Linux
+CUDA 包。系统 CUDA/WSL 运行库由 Nix 包装器提供，其他加速后端暂未实现。
+本项目不再需要 CUDA llama-server、Pixi 或外部 ffmpeg。

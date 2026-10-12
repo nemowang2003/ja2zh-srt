@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -92,19 +93,27 @@ def translate_segments(
     if batch_size < 1:
         raise ValueError("batch_size must be at least 1")
 
-    client = None if complete else OpenAI(base_url=config.base_url, api_key=config.api_key)
-    translated: list[SubtitleSegment] = []
-    for start in range(0, len(segments), batch_size):
-        batch = segments[start : start + batch_size]
-        translated.extend(
-            _translate_batch(
-                batch,
-                client=client,
-                config=config,
-                complete=complete,
+    client = (
+        None
+        if complete
+        else OpenAI(base_url=config.base_url, api_key=config.api_key, timeout=3600, max_retries=0)
+    )
+    try:
+        translated: list[SubtitleSegment] = []
+        for start in range(0, len(segments), batch_size):
+            batch = segments[start : start + batch_size]
+            translated.extend(
+                _translate_batch(
+                    batch,
+                    client=client,
+                    config=config,
+                    complete=complete,
+                )
             )
-        )
-    return translated
+        return translated
+    finally:
+        if client is not None:
+            client.close()
 
 
 def _translate_batch(
@@ -279,12 +288,16 @@ def _complete_chat(
 ) -> str:
     if client is None:
         raise TranslationError("OpenAI client was not initialized")
-    response = client.chat.completions.create(
+    raw = client.chat.completions.with_raw_response.create(
         model=config.model,
         messages=messages,
         temperature=config.temperature,
         top_p=config.top_p,
     )
+    warning = raw.headers.get("x-local-llm-warning")
+    if warning:
+        warnings.warn(f"local LLM: {warning}", RuntimeWarning, stacklevel=2)
+    response = raw.parse()
     content = response.choices[0].message.content
     if not content:
         raise TranslationError("Sakura returned an empty response")

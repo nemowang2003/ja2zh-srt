@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 import click
+from audio_transcribe import Transcriber, compute_type_for
 
-from . import models as model_store
-from .sakura import ManagedSakuraServer, SakuraServerConfig
 from .subtitles import write_srt
-from .transcribe import Transcriber, release_transcription_memory
-from .translate import TranslationError, default_translated_path, translate_file
+from .translate import SakuraConfig, TranslationError, default_translated_path, translate_file
 
 MP3_SUFFIX = ".mp3"
 JA_SRT_SUFFIX = ".ja.srt"
@@ -33,18 +30,15 @@ class PipelineOptions:
     force: bool
     whisper_model: str
     device: str
-    compute_type: str
+    compute_type: str | None
     beam_size: int
     vad: bool
     batch_size: int
     temperature: float
     top_p: float
-    sakura_model: str
-    sakura_model_path: Path | None
-    sakura_server_command: str
-    sakura_host: str
-    sakura_port: int
-    sakura_startup_timeout: float
+    llm_url: str
+    api_key: str
+    llm_model: str
 
 
 class Ja2ZhSrtGroup(click.Group):
@@ -67,100 +61,54 @@ def main() -> None:
 
 
 @main.command()
-@click.option("--whisper-model", default=model_store.DEFAULT_WHISPER_MODEL, show_default=True)
-@click.option("--sakura-model", default=model_store.DEFAULT_SAKURA_MODEL, show_default=True)
-def check(whisper_model: str, sakura_model: str) -> None:
-    """Check runtime tools and cached models."""
-    if not model_store.print_status(whisper_model=whisper_model, sakura_model=sakura_model):
-        sys.stdout.flush()
-        raise click.ClickException("runtime is not ready; resolve the missing items above")
+@click.option("--device", type=click.Choice(["cuda", "cpu"]), default="cuda")
+@click.option(
+    "--llm-url", envvar="JA2ZH_SRT_LLM_URL", default="http://127.0.0.1:4000/v1", show_default=True
+)
+@click.option("--api-key", envvar="JA2ZH_SRT_API_KEY", default="not-needed")
+def check(device: str, llm_url: str, api_key: str) -> None:
+    """Check transcription acceleration and the configured LLM endpoint."""
+    import httpx
 
-
-@main.group()
-def download() -> None:
-    """Download runtime models."""
-
-
-@download.command("whisper")
-@click.argument("model_name", required=False, default=model_store.DEFAULT_WHISPER_MODEL)
-@click.option("-f", "--force", is_flag=True, help="Remove the local cache and download again.")
-def download_whisper(model_name: str, force: bool) -> None:
-    """Download a faster-whisper model."""
-    path = model_store.download_whisper_model(model_name, force=force)
-    print(f"wrote {path}")
-
-
-@download.command("sakura")
-@click.argument("model_name", required=False, default=model_store.DEFAULT_SAKURA_MODEL)
-@click.option("-f", "--force", is_flag=True, help="Download again even if the file is cached.")
-def download_sakura(model_name: str, force: bool) -> None:
-    """Download a Sakura GGUF model."""
-    path = model_store.download_sakura_model(model_name, force=force)
-    print(f"wrote {path}")
+    try:
+        print(f"transcription: device={device} compute={compute_type_for(device)}")
+        response = httpx.get(
+            llm_url.rstrip("/") + "/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        response.raise_for_status()
+        print(f"LLM endpoint: {llm_url}; models={[m['id'] for m in response.json()['data']]}")
+    except (RuntimeError, OSError, httpx.HTTPError) as error:
+        raise click.ClickException(str(error)) from error
 
 
 @main.command("run", hidden=True)
 @click.argument("target", type=click.Path(exists=True, path_type=Path))
 @click.option("-f", "--force", is_flag=True, help="Overwrite existing .ja.srt/.zh.srt files.")
-@click.option("--whisper-model", default=model_store.DEFAULT_WHISPER_MODEL, show_default=True)
-@click.option("--device", default="cuda", show_default=True)
-@click.option("--compute-type", default="float16", show_default=True)
+@click.option("--whisper-model", default="large-v3", show_default=True)
+@click.option("--device", type=click.Choice(["cuda", "cpu"]), default="cuda", show_default=True)
+@click.option("--compute-type", default=None)
 @click.option("--beam-size", default=5, show_default=True, type=click.IntRange(1))
 @click.option("--vad/--no-vad", default=True, show_default=True)
 @click.option("--batch-size", default=8, show_default=True, type=click.IntRange(1))
 @click.option("--temperature", default=0.3, show_default=True, type=click.FloatRange(0.0))
 @click.option("--top-p", default=0.8, show_default=True, type=click.FloatRange(0.0, 1.0))
-@click.option("--sakura-model", default=model_store.DEFAULT_SAKURA_MODEL, show_default=True)
 @click.option(
-    "--sakura-model-path",
-    type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
-    default=None,
+    "--llm-url", envvar="JA2ZH_SRT_LLM_URL", default="http://127.0.0.1:4000/v1", show_default=True
 )
-@click.option("--sakura-server-command", default="llama-server", show_default=True)
-@click.option("--sakura-host", default="127.0.0.1", show_default=True)
-@click.option("--sakura-port", default=0, show_default=True, type=click.IntRange(0, 65535))
 @click.option(
-    "--sakura-startup-timeout", default=180.0, show_default=True, type=click.FloatRange(1.0)
+    "--api-key",
+    envvar="JA2ZH_SRT_API_KEY",
+    default="not-needed",
+    help="LLM API key; prefer JA2ZH_SRT_API_KEY environment variable.",
 )
-def run(
-    target: Path,
-    force: bool,
-    whisper_model: str,
-    device: str,
-    compute_type: str,
-    beam_size: int,
-    vad: bool,
-    batch_size: int,
-    temperature: float,
-    top_p: float,
-    sakura_model: str,
-    sakura_model_path: Path | None,
-    sakura_server_command: str,
-    sakura_host: str,
-    sakura_port: int,
-    sakura_startup_timeout: float,
-) -> None:
-    """Run the default subtitle pipeline."""
-    options = PipelineOptions(
-        force=force,
-        whisper_model=whisper_model,
-        device=device,
-        compute_type=compute_type,
-        beam_size=beam_size,
-        vad=vad,
-        batch_size=batch_size,
-        temperature=temperature,
-        top_p=top_p,
-        sakura_model=sakura_model,
-        sakura_model_path=sakura_model_path,
-        sakura_server_command=sakura_server_command,
-        sakura_host=sakura_host,
-        sakura_port=sakura_port,
-        sakura_startup_timeout=sakura_startup_timeout,
-    )
+@click.option("--llm-model", envvar="JA2ZH_SRT_LLM_MODEL", default="sakura", show_default=True)
+def run(target: Path, **kwargs) -> None:
+    """Run the subtitle pipeline using the audio-transcribe SDK and an LLM API."""
     try:
-        process_target(target, options)
-    except TranslationError as exc:
+        process_target(target, PipelineOptions(**kwargs))
+    except (TranslationError, OSError, ValueError, RuntimeError) as exc:
         raise click.ClickException(str(exc)) from exc
 
 
@@ -254,17 +202,26 @@ def run_transcriptions(jobs: list[TranscriptionJob], options: PipelineOptions) -
 
     print(f"transcribing {len(jobs)} file(s)")
     with Transcriber(
-        model_name=options.whisper_model,
+        model=options.whisper_model,
         device=options.device,
         compute_type=options.compute_type,
-        beam_size=options.beam_size,
-        vad_filter=options.vad,
     ) as transcriber:
         for job in jobs:
-            segments = transcriber.transcribe(job.audio_path)
+            from .subtitles import SubtitleSegment
+
+            result = transcriber.transcribe(
+                job.audio_path,
+                language="ja",
+                beam_size=options.beam_size,
+                vad_filter=options.vad,
+                condition_on_previous_text=False,
+            )
+            segments = [
+                SubtitleSegment(index=i, start=s.start, end=s.end, text=s.text)
+                for i, s in enumerate(result.segments, 1)
+            ]
             write_srt(segments, job.output_path)
             print(f"wrote {job.output_path}")
-    release_transcription_memory()
 
 
 def run_translations(jobs: list[TranslationJob], options: PipelineOptions) -> None:
@@ -273,26 +230,18 @@ def run_translations(jobs: list[TranslationJob], options: PipelineOptions) -> No
         return
 
     print(f"translating {len(jobs)} file(s)")
-    server_config = SakuraServerConfig.from_options(
-        model_path=options.sakura_model_path or model_store.sakura_model_path(options.sakura_model),
-        server_command=options.sakura_server_command,
-        host=options.sakura_host,
-        port=options.sakura_port,
-        startup_timeout=options.sakura_startup_timeout,
-    )
-    with ManagedSakuraServer(
-        server_config,
+    config = SakuraConfig(
+        base_url=options.llm_url,
+        api_key=options.api_key,
+        model=options.llm_model,
         temperature=options.temperature,
         top_p=options.top_p,
-    ) as config:
-        for job in jobs:
-            translate_file(
-                job.input_path,
-                job.output_path,
-                config=config,
-                batch_size=options.batch_size,
-            )
-            print(f"wrote {job.output_path}")
+    )
+    for job in jobs:
+        translate_file(
+            job.input_path, job.output_path, config=config, batch_size=options.batch_size
+        )
+        print(f"wrote {job.output_path}")
 
 
 def japanese_subtitle_path(audio_path: Path) -> Path:

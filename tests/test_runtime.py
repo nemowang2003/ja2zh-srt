@@ -1,71 +1,87 @@
-from __future__ import annotations
-
-import io
 import tempfile
 import unittest
-from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
+from audio_transcribe import Segment, Transcript
 from click.testing import CliRunner
-
-from ja2zh_srt import main, models
-from ja2zh_srt.sakura import ManagedSakuraServer, SakuraServerConfig
-from ja2zh_srt.translate import TranslationError
-
-
-class RuntimeCheckTests(unittest.TestCase):
-    @patch("ja2zh_srt.models.subprocess.run")
-    @patch("ja2zh_srt.models.shutil.which", return_value="/bin/llama-server")
-    def test_cpu_only_llama_server_fails(self, _which: MagicMock, run: MagicMock) -> None:
-        run.return_value.returncode = 0
-        run.return_value.stdout = "Available devices:\n  CPU: Generic CPU\n"
-        run.return_value.stderr = ""
-        output = io.StringIO()
-        with redirect_stdout(output):
-            ready = models._print_llama_server()
-        self.assertFalse(ready)
-        self.assertIn("cannot see a CUDA device", output.getvalue())
-
-    @patch("ja2zh_srt.models.ctranslate2.get_cuda_device_count", return_value=0)
-    def test_missing_cuda_device_fails(self, _device_count: MagicMock) -> None:
-        output = io.StringIO()
-        with redirect_stdout(output):
-            ready = models._print_cuda()
-        self.assertFalse(ready)
-        self.assertIn("CUDA device not visible", output.getvalue())
-
-    @patch("ja2zh_srt.models.print_status", return_value=False)
-    def test_check_returns_failure(self, _print_status: MagicMock) -> None:
-        result = CliRunner().invoke(main, ["check"])
-        self.assertNotEqual(result.exit_code, 0)
-        self.assertIn("runtime is not ready", result.output)
+from ja2zh_srt import PipelineOptions, main, process_target
+from ja2zh_srt.subtitles import SubtitleSegment
+from ja2zh_srt.translate import (
+    SakuraConfig,
+    TranslationError,
+    parse_translation_response,
+    translate_segments,
+)
 
 
-class SakuraServerTests(unittest.TestCase):
-    @patch("ja2zh_srt.sakura.subprocess.Popen")
-    @patch("ja2zh_srt.sakura.ManagedSakuraServer._wait_until_ready")
-    def test_startup_failure_stops_server(
-        self, wait_until_ready: MagicMock, popen: MagicMock
-    ) -> None:
-        wait_until_ready.side_effect = TranslationError("startup failed")
-        popen.return_value.poll.return_value = None
-        with tempfile.TemporaryDirectory() as temporary_dir:
-            model_path = Path(temporary_dir) / "model.gguf"
-            model_path.touch()
-            server = ManagedSakuraServer(
-                SakuraServerConfig(
-                    model_path=model_path,
-                    port=12345,
-                    log_path=Path(temporary_dir) / "server.log",
+class PipelineTests(unittest.TestCase):
+    def options(self):
+        return PipelineOptions(
+            False,
+            "large-v3",
+            "cuda",
+            None,
+            5,
+            True,
+            8,
+            0.3,
+            0.8,
+            "http://localhost:4000/v1",
+            "test-key",
+            "sakura",
+        )
+
+    def test_sdk_transcription_then_api_translation_and_skip(self):
+        with tempfile.TemporaryDirectory() as temp:
+            audio = Path(temp) / "input.mp3"
+            audio.touch()
+            result = Transcript((Segment(1, 2, "日本語"),), "ja")
+            with (
+                patch("ja2zh_srt.Transcriber") as engine,
+                patch("ja2zh_srt.translate_file") as translate,
+            ):
+                engine.return_value.__enter__.return_value.transcribe.return_value = result
+                process_target(audio, self.options())
+                self.assertIn(
+                    "00:00:01,000 --> 00:00:02,000", audio.with_suffix(".ja.srt").read_text()
                 )
-            )
-            with self.assertRaisesRegex(TranslationError, "startup failed"):
-                server.__enter__()
-            popen.return_value.terminate.assert_called_once()
-            self.assertIsNone(server._process)
-            self.assertIsNone(server._log_file)
+                engine.assert_called_once_with(model="large-v3", device="cuda", compute_type=None)
+                self.assertEqual(translate.call_args.kwargs["config"].model, "sakura")
+                audio.with_suffix(".zh.srt").touch()
+                process_target(audio, self.options())
+                self.assertEqual(engine.call_count, 1)
+                self.assertEqual(translate.call_count, 1)
 
+    def test_srt_translation_does_not_load_whisper(self):
+        with tempfile.TemporaryDirectory() as temp:
+            subtitle = Path(temp) / "input.ja.srt"
+            subtitle.write_text("1\n00:00:00,000 --> 00:00:01,000\n日本語\n")
+            with patch("ja2zh_srt.Transcriber") as engine, patch("ja2zh_srt.translate_file"):
+                process_target(subtitle, self.options())
+                engine.assert_not_called()
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_cuda_check_failure_is_actionable(self):
+        with patch(
+            "ja2zh_srt.compute_type_for", side_effect=RuntimeError("no usable acceleration found")
+        ):
+            result = CliRunner().invoke(main, ["check"])
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("no usable acceleration", result.output)
+
+    def test_translation_preserves_cue_identity_and_times(self):
+        segments = [SubtitleSegment(7, 1.25, 2.5, "こんにちは")]
+        output = translate_segments(
+            segments,
+            config=SakuraConfig("http://test", "key", "sakura"),
+            complete=lambda _: "[1]\n你好",
+        )
+        self.assertEqual(
+            (output[0].index, output[0].start, output[0].end, output[0].text),
+            (7, 1.25, 2.5, "你好"),
+        )
+
+    def test_missing_and_duplicate_ids_rejected(self):
+        for text in ["[1]\n你好", "[1]\n你好\n[1]\n再见"]:
+            with self.assertRaises(TranslationError):
+                parse_translation_response(text, expected_ids=[1, 2])

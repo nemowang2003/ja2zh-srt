@@ -1,19 +1,17 @@
 [project]
 name = "ja2zh-srt"
-version = "0.1.0"
-description = "CUDA-only Japanese MP3 to Japanese and Chinese SRT pipeline using faster-whisper and Sakura LLM."
+version = "0.2.0"
+description = "Japanese audio to Japanese and Chinese SRT using audio-transcribe and an LLM API."
 readme = "README.md"
 authors = [
     { name = "nemowang", email = "nemowang@outlook.com" }
 ]
-requires-python = ">=3.12, <3.13"
+requires-python = ">=3.12"
 dependencies = [
-    "click>=8.4.1",
-    "faster-whisper>=1.2.1",
-    "huggingface-hub>=1.16.1",
-    "humanize>=4.15.0",
-    "openai>=2.41.0",
-    "platformdirs>=4.10.0",
+    "click>=8.1,<9",
+    "audio-transcribe>=0.2.0",
+    "httpx>=0.28,<1",
+    "openai>=2,<3",
     "srt>=3.5.3",
 ]
 
@@ -28,3 +26,6 @@ build-backend = "uv_build"
 dev = [
     "pre-commit>=4.6.0",
 ]
+
+[tool.uv.sources]
+audio-transcribe = { git = "https://github.com/nemowang2003/audio-transcribe", tag = "v0.2.0" }
