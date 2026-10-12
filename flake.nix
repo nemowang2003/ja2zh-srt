@@ -11,7 +11,7 @@
     pyproject-build-systems.inputs.nixpkgs.follows = "nixpkgs";
     pyproject-build-systems.inputs.pyproject-nix.follows = "pyproject-nix";
     pyproject-build-systems.inputs.uv2nix.follows = "uv2nix";
-    audio-transcribe.url = "github:nemowang2003/audio-transcribe/v0.2.1";
+    audio-transcribe.url = "github:nemowang2003/audio-transcribe/v0.2.2";
     audio-transcribe.inputs.nixpkgs.follows = "nixpkgs";
     audio-transcribe.inputs.pyproject-nix.follows = "pyproject-nix";
     audio-transcribe.inputs.uv2nix.follows = "uv2nix";

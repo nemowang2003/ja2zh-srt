@@ -52,3 +52,18 @@ SDK consumers; `lib.mkPackage { pkgs; python; cudaSupport; }` ships the CLI with
 its isolated environment. The CLI's `python-env` passthru exposes that environment
 for installation and runtime checks. Development shells supply Python and uv;
 use `uv sync` / `uv run` for development, and `nix build` for deployment.
+
+## Development checks
+
+Ruff, ty and pre-commit are dev dependencies pinned in `uv.lock`. Install the
+Git hook once per clone:
+
+```sh
+uv sync --locked
+uv run --locked pre-commit install
+uv run --locked pre-commit run --all-files
+```
+
+The hooks use the locked tools through uv: lock consistency, Ruff lint fixes,
+Ruff formatting, and a project-wide ty check. Dev dependencies are excluded from
+the deployed application environments.

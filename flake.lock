@@ -16,16 +16,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1791827596,
-        "narHash": "sha256-HmbBsB3305Y2yGh7MJU0dI90YGHhd09Loros07fLcOs=",
+        "lastModified": 1791829510,
+        "narHash": "sha256-elYIHij/yN/Rgv3BrE2NnnpRaYdKA7tPgSqW/ktNDlY=",
         "owner": "nemowang2003",
         "repo": "audio-transcribe",
-        "rev": "fc6fe2e8430e25443166f5f035b211855f75ed9e",
+        "rev": "fbcc445e20e841d44abd9e530ce4c202fd28517d",
         "type": "github"
       },
       "original": {
         "owner": "nemowang2003",
-        "ref": "v0.2.1",
+        "ref": "v0.2.2",
         "repo": "audio-transcribe",
         "type": "github"
       }

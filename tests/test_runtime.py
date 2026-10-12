@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from audio_transcribe import Segment, Transcript
 from click.testing import CliRunner
+
 from ja2zh_srt import PipelineOptions, main, process_target
 from ja2zh_srt.subtitles import SubtitleSegment
 from ja2zh_srt.translate import (

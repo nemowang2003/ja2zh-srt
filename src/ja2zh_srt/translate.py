@@ -6,10 +6,9 @@ import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
 
 from openai import OpenAI
-from openai.types.chat import ChatCompletionMessageParam
+from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
 from .subtitles import SubtitleSegment, bilingual_segments, read_subtitles, write_subtitles
 
@@ -203,33 +202,30 @@ def default_bilingual_path(input_path: Path) -> Path:
 
 
 def _build_messages(batch: list[SubtitleSegment]) -> list[ChatCompletionMessageParam]:
-    return cast(
-        list[ChatCompletionMessageParam],
-        [
-            {
-                "role": "system",
-                "content": (
-                    "You are Sakura, a Japanese-to-Simplified-Chinese subtitle translator. "
-                    "你是一个视觉小说翻译模型，可以通顺地使用给定术语表，"
-                    "以自然流畅的风格将日文翻译成简体中文。不要擅自添加原文没有的内容，"
-                    "不要增加或减少换行。"
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    "参考以下术语表（可为空，格式为 src->dst #备注）：\n"
-                    f"{_format_glossary(DEFAULT_GLOSSARY)}\n\n"
-                    "根据以上术语表的对应关系和备注，结合上下文，"
-                    "将下面的文本从日文翻译成简体中文。\n"
-                    "请保留每个 [数字] 编号，只翻译编号下面的正文。"
-                    "不要输出解释，不要输出 JSON。\n"
-                    "[Input]\n"
-                    f"{_format_numbered_blocks(batch)}"
-                ),
-            },
-        ],
-    )
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are Sakura, a Japanese-to-Simplified-Chinese subtitle translator. "
+                "你是一个视觉小说翻译模型，可以通顺地使用给定术语表，"
+                "以自然流畅的风格将日文翻译成简体中文。不要擅自添加原文没有的内容，"
+                "不要增加或减少换行。"
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "参考以下术语表（可为空，格式为 src->dst #备注）：\n"
+                f"{_format_glossary(DEFAULT_GLOSSARY)}\n\n"
+                "根据以上术语表的对应关系和备注，结合上下文，"
+                "将下面的文本从日文翻译成简体中文。\n"
+                "请保留每个 [数字] 编号，只翻译编号下面的正文。"
+                "不要输出解释，不要输出 JSON。\n"
+                "[Input]\n"
+                f"{_format_numbered_blocks(batch)}"
+            ),
+        },
+    ]
 
 
 _BLOCK_HEADER_RE = re.compile(r"^\s*\[(?P<id>\d+)]\s*(?P<text>.*)$")
@@ -293,11 +289,14 @@ def _complete_chat(
         messages=messages,
         temperature=config.temperature,
         top_p=config.top_p,
+        stream=False,
     )
     warning = raw.headers.get("x-local-llm-warning")
     if warning:
         warnings.warn(f"local LLM: {warning}", RuntimeWarning, stacklevel=2)
     response = raw.parse()
+    if not isinstance(response, ChatCompletion):
+        raise TranslationError("Sakura returned a streaming response to a non-streaming request")
     content = response.choices[0].message.content
     if not content:
         raise TranslationError("Sakura returned an empty response")

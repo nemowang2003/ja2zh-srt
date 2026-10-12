@@ -1,6 +1,6 @@
 [project]
 name = "ja2zh-srt"
-version = "0.2.1"
+version = "0.2.2"
 description = "Japanese audio to Japanese and Chinese SRT using audio-transcribe and an LLM API."
 readme = "README.md"
 authors = [
@@ -25,7 +25,16 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pre-commit>=4.6.0",
+    "ruff>=0.17.0",
+    "ty>=0.0.86",
 ]
 
 [tool.uv.sources]
-audio-transcribe = { git = "https://github.com/nemowang2003/audio-transcribe", tag = "v0.2.1" }
+audio-transcribe = { git = "https://github.com/nemowang2003/audio-transcribe", tag = "v0.2.2" }
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I"]
+ignore = ["E501"]
