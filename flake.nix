@@ -11,7 +11,7 @@
     pyproject-build-systems.inputs.nixpkgs.follows = "nixpkgs";
     pyproject-build-systems.inputs.pyproject-nix.follows = "pyproject-nix";
     pyproject-build-systems.inputs.uv2nix.follows = "uv2nix";
-    audio-transcribe.url = "github:nemowang2003/audio-transcribe/v0.2.2";
+    audio-transcribe.url = "github:nemowang2003/audio-transcribe";
     audio-transcribe.inputs.nixpkgs.follows = "nixpkgs";
     audio-transcribe.inputs.pyproject-nix.follows = "pyproject-nix";
     audio-transcribe.inputs.uv2nix.follows = "uv2nix";
@@ -32,12 +32,11 @@
     overlay = workspace.mkPyprojectOverlay {sourcePreference = "wheel";};
     mk-application = pkgs: (pkgs.callPackages pyproject-nix.build.util {}).mkApplication;
   in {
-    lib.runtimeOverlay = {pkgs}:
-      pkgs.lib.composeExtensions (audio-transcribe.lib.runtimeOverlay {inherit pkgs;}) (final: prev: {
-        srt = prev.srt.overrideAttrs (old: {
-          nativeBuildInputs = (old.nativeBuildInputs or []) ++ final.resolveBuildSystem {setuptools = [];};
-        });
+    lib.runtimeOverlay = _: final: prev: {
+      srt = prev.srt.overrideAttrs (old: {
+        nativeBuildInputs = (old.nativeBuildInputs or []) ++ final.resolveBuildSystem {setuptools = [];};
       });
+    };
     lib.mkPythonSet = {
       pkgs,
       python ? pkgs.python314,
@@ -46,13 +45,13 @@
         pyproject-build-systems.overlays.wheel
         overlay
         (self.lib.runtimeOverlay {inherit pkgs;})
-        (final: prev: {
-          ja2zh-srt = prev.ja2zh-srt.overrideAttrs (old: {
-            # Use the backend from uv.lock instead of uv's bundled version.
-            uvBuildFlags = (old.uvBuildFlags or []) ++ ["--force-pep517"];
-            nativeBuildInputs = (old.nativeBuildInputs or []) ++ final.resolveBuildSystem {uv-build = [];};
-          });
-        })
+        (final: prev:
+          pkgs.lib.genAttrs ["ja2zh-srt" "audio-transcribe"] (name:
+            prev.${name}.overrideAttrs (old: {
+              # Use the backend from uv.lock instead of uv's bundled version.
+              uvBuildFlags = (old.uvBuildFlags or []) ++ ["--force-pep517"];
+              nativeBuildInputs = (old.nativeBuildInputs or []) ++ final.resolveBuildSystem {uv-build = [];};
+            })))
       ]);
     lib.mkPackage = {
       pkgs,
@@ -65,13 +64,14 @@
         venv = environment;
         package = python-set.ja2zh-srt;
       };
+      cuda-library-path = (audio-transcribe.lib.mkPackage {inherit pkgs python;}).cuda-library-path;
     in
       app.overrideAttrs (old: {
         nativeBuildInputs = (old.nativeBuildInputs or []) ++ [pkgs.makeWrapper];
         postFixup =
           (old.postFixup or "")
           + pkgs.lib.optionalString cudaSupport ''
-            wrapProgram "$out/bin/ja2zh-srt" --prefix LD_LIBRARY_PATH : "${audio-transcribe.lib.cudaLibraryPath pkgs}:/run/opengl-driver/lib:/usr/lib/wsl/lib"
+            wrapProgram "$out/bin/ja2zh-srt" --prefix LD_LIBRARY_PATH : "${cuda-library-path}:/run/opengl-driver/lib:/usr/lib/wsl/lib"
           '';
         meta.mainProgram = "ja2zh-srt";
         passthru =
@@ -81,6 +81,12 @@
             tests.unit = pkgs.runCommand "ja2zh-srt-unit" {} ''
               export PYTHONDONTWRITEBYTECODE=1
               ${environment}/bin/python -m unittest discover -s ${self}/tests
+              touch "$out"
+            '';
+            tests.audio-transcribe = pkgs.runCommand "ja2zh-srt-audio-transcribe" {} ''
+              export PYTHONDONTWRITEBYTECODE=1
+              ${environment}/bin/python -m unittest discover -s ${audio-transcribe}/tests
+              ${environment}/bin/python -c 'import audio_transcribe, av, ctranslate2, faster_whisper, onnxruntime'
               touch "$out"
             '';
           };
@@ -101,7 +107,7 @@
           cudaSupport = true;
         };
       });
-    checks = each-system (system: {unit = self.packages.${system}.default.tests.unit;});
+    checks = each-system (system: self.packages.${system}.default.tests);
     devShells = each-system (system: let
       pkgs = nixpkgs.legacyPackages.${system};
     in {

@@ -9,7 +9,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "click>=8.1,<9",
-    "audio-transcribe>=0.2.0",
+    "audio-transcribe",
     "httpx>=0.28,<1",
     "openai>=2,<3",
     "srt>=3.5.3",
@@ -19,12 +19,12 @@ dependencies = [
 ja2zh-srt = "ja2zh_srt:main"
 
 [build-system]
-requires = ["uv_build>=0.11.17,<0.13"]
+requires = ["uv_build>=0.13.5,<0.14"]
 build-backend = "uv_build"
 
 [dependency-groups]
 build = [
-    "uv-build>=0.11.17,<0.13",
+    "uv_build>=0.13.5,<0.14",
 ]
 dev = [
     "pre-commit>=4.6.0",
@@ -33,7 +33,7 @@ dev = [
 ]
 
 [tool.uv.sources]
-audio-transcribe = { git = "https://github.com/nemowang2003/audio-transcribe", tag = "v0.2.2" }
+audio-transcribe = { git = "https://github.com/nemowang2003/audio-transcribe" }
 
 [tool.ruff]
 line-length = 100

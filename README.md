@@ -33,7 +33,8 @@ nix flake check
 nix build .#cuda
 ```
 
-Python 依赖中直接声明 `audio-transcribe`，uv 使用其公开 Git tag。Nix flake 通过
+Python 依赖中直接声明 `audio-transcribe`，uv 从其主分支解析并在 `uv.lock`
+中固定具体 Git commit。Nix flake 的 `audio-transcribe` input 固定同一 commit，通过
 `audio-transcribe` input 按相同 Python 版本构建 SDK；提供普通 CPU 包及 x86_64 Linux
 CUDA 包。系统 CUDA/WSL 运行库由 Nix 包装器提供，其他加速后端暂未实现。
 本项目不再需要 CUDA llama-server、Pixi 或外部 ffmpeg。
