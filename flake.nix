@@ -26,7 +26,7 @@
     audio-transcribe,
     ...
   }: let
-    systems = ["x86_64-linux" "aarch64-linux" "aarch64-darwin" "x86_64-darwin"];
+    systems = ["x86_64-linux" "aarch64-linux" "aarch64-darwin"];
     each-system = nixpkgs.lib.genAttrs systems;
     workspace = uv2nix.lib.workspace.loadWorkspace {workspaceRoot = self;};
     overlay = workspace.mkPyprojectOverlay {sourcePreference = "wheel";};
