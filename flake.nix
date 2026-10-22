@@ -46,6 +46,13 @@
         pyproject-build-systems.overlays.wheel
         overlay
         (self.lib.runtimeOverlay {inherit pkgs;})
+        (final: prev: {
+          ja2zh-srt = prev.ja2zh-srt.overrideAttrs (old: {
+            # Use the backend from uv.lock instead of uv's bundled version.
+            uvBuildFlags = (old.uvBuildFlags or []) ++ ["--force-pep517"];
+            nativeBuildInputs = (old.nativeBuildInputs or []) ++ final.resolveBuildSystem {uv-build = [];};
+          });
+        })
       ]);
     lib.mkPackage = {
       pkgs,
@@ -95,7 +102,15 @@
         };
       });
     checks = each-system (system: {unit = self.packages.${system}.default.tests.unit;});
-    devShells = each-system (system: let pkgs = nixpkgs.legacyPackages.${system}; in {default = pkgs.mkShell {packages = [pkgs.uv pkgs.python314];};});
+    devShells = each-system (system: let
+      pkgs = nixpkgs.legacyPackages.${system};
+    in {
+      default = pkgs.mkShell {
+        packages = [pkgs.uv pkgs.python314];
+        UV_PYTHON = pkgs.python314.interpreter;
+        UV_PYTHON_DOWNLOADS = "never";
+      };
+    });
     formatter = each-system (system: nixpkgs.legacyPackages.${system}.alejandra);
   };
 }

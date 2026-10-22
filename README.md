@@ -42,8 +42,10 @@ CUDA 包。系统 CUDA/WSL 运行库由 Nix 包装器提供，其他加速后端
 
 Nix builds resolve the project's `uv.lock` with uv2nix. Python dependencies,
 including optional extras, come from that lock; nixpkgs supplies the interpreter,
-system libraries and llama.cpp where applicable. Build backend versions are
-pinned by the `pyproject-build-systems` flake input because uv does not lock them.
+system libraries and llama.cpp where applicable. The `build` dependency group
+locks `uv_build` in `uv.lock`. Nix builds use `--force-pep517` and explicitly
+provide that locked backend instead of uv's bundled version. Other build
+backends come from the `pyproject-build-systems` flake input.
 
 All three build inputs (`pyproject-nix`, `uv2nix`, `pyproject-build-systems`) may
 follow a consuming flake's shared inputs. The standalone flake pins them itself.
